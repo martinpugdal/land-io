@@ -1,0 +1,5 @@
+name: land-io
+version: '${project.version}'
+main: dk.martinersej.landio.Land_io
+authors: [MartinErSej]
+description: Et spil der minder om land.io spillet
