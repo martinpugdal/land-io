@@ -3,9 +3,7 @@ package dk.martinersej.landio.listeners;
 import dk.martinersej.landio.GPlayer;
 import dk.martinersej.landio.Land_io;
 import dk.martinersej.landio.handlers.GameManager;
-import org.bukkit.Bukkit;
-import org.bukkit.Location;
-import org.bukkit.Material;
+import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.event.EventHandler;
@@ -41,8 +39,8 @@ public class WalkOnBlockListener implements Listener {
                 for (GPlayer player : gameManager.getPlayers()) {
                     if (player.getBlocks().containsKey(block.getLocation())) {
                         player.killed();
-                        player.getPlayer().sendMessage("§7Du blev dræbt af en anden spiller");
-                        gPlayer.getPlayer().sendMessage("§7Du dræbte §a" + player.getPlayer().getName());
+                        player.getPlayer().sendMessage(ChatColor.GRAY + "Du blev dræbt af en anden spiller");
+                        gPlayer.getPlayer().sendMessage(ChatColor.GRAY + "Du dræbte " + ChatColor.GREEN + player.getPlayer().getName());
                         break;
                     }
                 }
@@ -59,8 +57,8 @@ public class WalkOnBlockListener implements Listener {
                 fillBlocksInsideBox(gPlayer);
             } else if (walkingOnOtherBlock(block, gPlayer)) {
                 gPlayer.killed();
-                gPlayer.getPlayer().sendMessage("§7Du blev dræbt af en anden spiller");
-                getOwnerOfThisBlock(block).getPlayer().sendMessage("§7Du dræbte §a" + gPlayer.getPlayer().getName());
+                gPlayer.getPlayer().sendMessage(ChatColor.GRAY + "Du blev dræbt af en anden spiller");
+                getOwnerOfThisBlock(block).getPlayer().sendMessage(ChatColor.GRAY + "Du dræbte " + ChatColor.GREEN + gPlayer.getPlayer().getName());
             } else if (walkingOnMyGlassBlock(block, gPlayer)) {
                 gPlayer.addExpandingBlock(block.getLocation(), block);
             } else if (!walkingOnMyBlock(block, gPlayer) && gPlayer.isExpanding()) {
@@ -85,7 +83,7 @@ public class WalkOnBlockListener implements Listener {
     }
 
     private boolean walkingOnGameBlock(Block block) {
-        return block.getType().getId() == 82 && block.getData() == 0;
+        return block.getType() == Material.CLAY && block.getData() == 0;
     }
 
     private boolean walkingOnMyBlock(Block block, GPlayer gPlayer) {
@@ -97,59 +95,80 @@ public class WalkOnBlockListener implements Listener {
     }
 
     private void fillBlocksInsideBox(GPlayer gPlayer) {
-        Location minLoc = gPlayer.getBlocks().keySet().stream().reduce((loc1, loc2) -> new Location(loc1.getWorld(),
+        Set<Location> glassBlocks = gPlayer.getBlocks().keySet();
+        Set<Location> toFill = new HashSet<>();
+        Set<Location> visited = new HashSet<>();
+
+        // Find the bounding box of the glass blocks
+        Location minLoc = glassBlocks.stream().reduce((loc1, loc2) -> new Location(loc1.getWorld(),
             Math.min(loc1.getBlockX(), loc2.getBlockX()),
             Math.min(loc1.getBlockY(), loc2.getBlockY()),
             Math.min(loc1.getBlockZ(), loc2.getBlockZ()))).get();
 
-        Location maxLoc = gPlayer.getBlocks().keySet().stream().reduce((loc1, loc2) -> new Location(loc1.getWorld(),
+        Location maxLoc = glassBlocks.stream().reduce((loc1, loc2) -> new Location(loc1.getWorld(),
             Math.max(loc1.getBlockX(), loc2.getBlockX()),
             Math.max(loc1.getBlockY(), loc2.getBlockY()),
             Math.max(loc1.getBlockZ(), loc2.getBlockZ()))).get();
 
-        if (minLoc.equals(maxLoc))  // only one block
-            Land_io.getInstance().getGameManager().updateToPlatformBlock(gPlayer, minLoc.getBlock());
-        else {
-            Location center = getCenterLocation(minLoc, maxLoc);
-            if (gPlayer.getBlocks().containsKey(center)) // center is a glass block
-                Land_io.getInstance().getGameManager().updateToPlatformBlock(gPlayer, center.getBlock());
-            else {
-                Set<Location> filled = new HashSet<>(gPlayer.getBlocks().keySet());
-                filled.addAll(gPlayer.getPlatformBlocks());
-                fill(gPlayer, center, filled, 0);
-                gPlayer.getBlocks().forEach((loc, block) ->
-                    Land_io.getInstance().getGameManager().updateToPlatformBlock(gPlayer, loc.getBlock()));
-                gPlayer.getBlocks().clear();
+        Bukkit.getLogger().info("Filling blocks inside box: minLoc = " + minLoc + ", maxLoc = " + maxLoc);
+
+        Location startLoc = getInteriorStartLocation(glassBlocks, minLoc, maxLoc, gPlayer);
+
+        if (startLoc != null) {
+            floodFill(startLoc, glassBlocks, toFill, visited, minLoc, maxLoc, gPlayer);
+
+            toFill.addAll(glassBlocks);
+            glassBlocks.clear();
+            for (Location loc : toFill) {
+                Land_io.getInstance().getGameManager().updateToPlatformBlock(gPlayer, loc.getBlock());
+            }
+
+            Bukkit.getLogger().info("Finished filling blocks. Total blocks filled: " + toFill.size());
+        } else {
+            Bukkit.getLogger().info("No valid interior start location found.");
+        }
+    }
+
+    //TOOD: recode, so its not only checking for wool
+    private Location getInteriorStartLocation(Set<Location> glassBlocks, Location minLoc, Location maxLoc, GPlayer gPlayer) {
+        World world = minLoc.getWorld();
+        for (int x = minLoc.getBlockX() + 1; x < maxLoc.getBlockX(); x++) {
+            for (int z = minLoc.getBlockZ() + 1; z < maxLoc.getBlockZ(); z++) {
+                Location loc = new Location(world, x, minLoc.getBlockY(), z);
+                Block block = loc.getBlock();
+                if (!glassBlocks.contains(loc) && block.getType() != Material.WOOL) {
+                    return loc;
+                }
             }
         }
-
-        //test for minLoc and maxLoc
-        minLoc.getBlock().setType(Material.SPONGE);
-        maxLoc.getBlock().setType(Material.SPONGE);
-        minLoc.getBlock().getState().update();
-        maxLoc.getBlock().getState().update();
+        return null;
     }
 
-    private Location getCenterLocation(Location corner1, Location corner2) {
-        double x = (corner1.getX() + corner2.getX()) / 2;
-        double y = (corner1.getY() + corner2.getY()) / 2;
-        double z = (corner1.getZ() + corner2.getZ()) / 2;
-        return new Location(corner1.getWorld(), x, y, z);
-    }
+    private void floodFill(Location loc, Set<Location> glassBlocks, Set<Location> toFill, Set<Location> visited, Location minLoc, Location maxLoc, GPlayer gPlayer) {
+        if (visited.contains(loc) || glassBlocks.contains(loc) || toFill.contains(loc)) {
+            return;
+        }
 
-    private void fill(GPlayer gplayer, Location location, Set<Location> filled, int tries) {
-        if (!filled.add(location)) {
+        visited.add(loc);
+
+        // bounds
+        if (loc.getBlockX() < minLoc.getBlockX() || loc.getBlockX() > maxLoc.getBlockX()
+            || loc.getBlockY() < minLoc.getBlockY() || loc.getBlockY() > maxLoc.getBlockY()
+            || loc.getBlockZ() < minLoc.getBlockZ() || loc.getBlockZ() > maxLoc.getBlockZ()) {
             return;
         }
-        if (tries > 25) {
-            // too many tries, return to avoid infinite loop
+
+        Block block = loc.getBlock();
+        // Stop if we encounter the player's wool block
+        if (block.getType() == gPlayer.getBlock().getType() && block.getData() == gPlayer.getColor()) {
             return;
         }
-        Block block = location.getBlock();
-        Land_io.getInstance().getGameManager().updateToPlatformBlock(gplayer, block);
+
+        //TODO: check for block stuff here
+        toFill.add(loc);
+
         for (BlockFace face : FILL_FACES) {
-            // recursively fill all blocks around the current block
-            fill(gplayer, block.getRelative(face).getLocation(), filled, tries + 1);
+            floodFill(loc.clone().add(face.getModX(), face.getModY(), face.getModZ()), glassBlocks, toFill, visited, minLoc, maxLoc, gPlayer);
         }
     }
 }

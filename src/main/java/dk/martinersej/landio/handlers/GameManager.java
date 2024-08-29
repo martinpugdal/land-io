@@ -10,6 +10,7 @@ import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.weather.WeatherChangeEvent;
@@ -62,7 +63,8 @@ public class GameManager implements org.bukkit.event.Listener {
     }
 
     public Block getBlockUnderPlayer(Player player) {
-        return player.getWorld().getBlockAt(player.getLocation().getBlockX(), player.getLocation().getBlockY() - 1, player.getLocation().getBlockZ());
+        // use BlockFace.DOWN to get the block under the player
+        return player.getLocation().getBlock().getRelative(BlockFace.DOWN);
     }
 
     public boolean isPlaying(Player player) {
@@ -128,7 +130,7 @@ public class GameManager implements org.bukkit.event.Listener {
     }
 
     private void spawnPlayerRandomOnPlatform(GPlayer gplayer) {
-        int offsetFromCenter = worldHandler.getOffsetFromCenter() - 1;
+        int offsetFromCenter = worldHandler.getOffsetFromCenter() - 3;
         Random random = new Random();
         int x = random.nextInt(offsetFromCenter * 2) - offsetFromCenter;
         int z = random.nextInt(offsetFromCenter * 2) - offsetFromCenter;
